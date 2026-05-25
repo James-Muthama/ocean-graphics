@@ -1,0 +1,115 @@
+/* =========================================================
+   DEEP OCEAN EXPLORER — Stylesheet
+   UI Layer styling (outside the graphics pipeline)
+========================================================= */
+
+@import url('https://fonts.googleapis.com/css2?family=Orbitron:wght@400;700&family=Share+Tech+Mono&display=swap');
+
+/* --- Reset & Base --- */
+*, *::before, *::after {
+  box-sizing: border-box;
+  margin: 0;
+  padding: 0;
+}
+
+body {
+  background: #000a12;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  min-height: 100vh;
+  font-family: 'Share Tech Mono', monospace;
+  color: #7fffea;
+  overflow: hidden;
+}
+
+/* --- Title --- */
+h1 {
+  font-family: 'Orbitron', sans-serif;
+  font-size: clamp(14px, 2vw, 22px);
+  letter-spacing: 0.25em;
+  color: #00ffe7;
+  text-shadow: 0 0 12px #00ffe7aa;
+  margin-bottom: 10px;
+  text-transform: uppercase;
+}
+
+/* --- Canvas Container --- */
+#canvas-wrapper {
+  position: relative;
+  border: 1px solid #00ffe755;
+  box-shadow: 0 0 40px #00ffe720, inset 0 0 60px #001a2a;
+}
+
+canvas {
+  display: block;
+  cursor: crosshair;
+}
+
+/* --- HUD (Heads-Up Display) --- */
+#hud {
+  position: absolute;
+  top: 10px;
+  left: 12px;
+  font-size: 11px;
+  line-height: 1.8;
+  color: #00ffe7cc;
+  pointer-events: none;
+  text-shadow: 0 0 6px #00ffe7;
+}
+
+/* --- Pipeline Stage Label (bottom-right) --- */
+#pipeline-label {
+  position: absolute;
+  bottom: 10px;
+  right: 12px;
+  font-size: 11px;
+  text-align: right;
+  pointer-events: none;
+}
+
+#pipeline-label div {
+  line-height: 1.8;
+}
+
+.leg-app { color: #ff6b6b; text-shadow: 0 0 6px #ff6b6b88; }
+.leg-geo { color: #ffd93d; text-shadow: 0 0 6px #ffd93d88; }
+.leg-ras { color: #6bcb77; text-shadow: 0 0 6px #6bcb7788; }
+
+/* --- Controls Bar --- */
+#controls {
+  display: flex;
+  gap: 16px;
+  align-items: center;
+  margin-top: 12px;
+  flex-wrap: wrap;
+  justify-content: center;
+}
+
+button {
+  background: transparent;
+  border: 1px solid #00ffe7;
+  color: #00ffe7;
+  font-family: 'Share Tech Mono', monospace;
+  font-size: 12px;
+  padding: 6px 18px;
+  cursor: pointer;
+  letter-spacing: 0.1em;
+  transition: background 0.2s, box-shadow 0.2s;
+}
+
+button:hover {
+  background: #00ffe720;
+  box-shadow: 0 0 12px #00ffe755;
+}
+
+label {
+  font-size: 12px;
+  color: #7fffea;
+}
+
+input[type=range] {
+  accent-color: #00ffe7;
+  width: 100px;
+}

@@ -1,0 +1,41 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0"/>
+  <title>Deep Ocean Explorer</title>
+  <link rel="stylesheet" href="style.css" />
+</head>
+<body>
+
+  <h1>🌊 Deep Ocean Explorer</h1>
+
+  <div id="canvas-wrapper">
+    <canvas id="ocean" width="800" height="500"></canvas>
+
+    <!-- HUD overlay (updated by JS) -->
+    <div id="hud">
+      <div>FPS: <span id="fps">0</span></div>
+      <div>Objects: <span id="objCount">0</span></div>
+      <div>Mouse: <span id="mousePos">—</span></div>
+      <div>Bubbles: <span id="bubbleCount">0</span></div>
+    </div>
+
+    <div id="pipeline-label">
+      <div>▶ <span class="leg-app">APPLICATION</span> → logic &amp; state</div>
+      <div>▶ <span class="leg-geo">GEOMETRY</span> → transforms &amp; paths</div>
+      <div>▶ <span class="leg-ras">RASTERIZATION</span> → draw calls</div>
+    </div>
+  </div>
+
+  <!-- Controls -->
+  <div id="controls">
+    <button id="btnPause">⏸ Pause</button>
+    <button id="btnBubble">💧 Spawn Bubbles</button>
+    <label>Speed: <input type="range" id="speedSlider" min="0.1" max="3" step="0.1" value="1"></label>
+    <button id="btnNight">🌑 Toggle Depth</button>
+  </div>
+
+  <script src="graphics.js"></script>
+</body>
+</html>
