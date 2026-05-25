@@ -1,0 +1,1046 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Solar System Simulator</title>
+  <style>
+    /* kill default spacing on everything — browsers love adding mystery margins */
+    *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+
+    @import url('https://fonts.googleapis.com/css2?family=Share+Tech+Mono&family=Exo+2:wght@300;600&display=swap');
+
+    /* colour tokens so we're not playing hex lottery every time we tweak something */
+    :root {
+      --hud-bg:     rgba(4, 12, 28, 0.82);
+      --hud-border: rgba(80, 200, 255, 0.25);
+      --hud-glow:   rgba(80, 200, 255, 0.6);
+      --accent:     #50c8ff;
+      --warn:       #ffb347;
+      --ok:         #7fffb2;
+      --panel-bg:   rgba(4, 12, 28, 0.88);
+    }
+
+    body {
+      background: #000;
+      overflow: hidden;       /* no scrollbars on a fullscreen canvas, please */
+      font-family: 'Share Tech Mono', monospace;
+      color: var(--accent);
+      user-select: none;      /* stops accidental text selection while clicking around */
+    }
+
+    /* canvas fills the whole window and sits behind everything else */
+    canvas {
+      display: block;
+      position: fixed;
+      top: 0; left: 0;
+    }
+
+    /* --- HUD panel (top-left readout) ---------------------------------- */
+    #hud {
+      position: fixed;
+      top: 16px; left: 16px;
+      background: var(--hud-bg);
+      border: 1px solid var(--hud-border);
+      border-radius: 8px;
+      padding: 12px 16px;
+      min-width: 220px;
+      pointer-events: none;    /* clicks pass straight through to the canvas */
+      backdrop-filter: blur(6px);
+      box-shadow: 0 0 18px rgba(80,200,255,0.1), inset 0 0 24px rgba(0,0,0,0.4);
+    }
+
+    #hud h2 {
+      font-family: 'Exo 2', sans-serif;
+      font-weight: 600;
+      font-size: 11px;
+      letter-spacing: 3px;
+      text-transform: uppercase;
+      color: rgba(80,200,255,0.5);
+      border-bottom: 1px solid var(--hud-border);
+      padding-bottom: 6px;
+      margin-bottom: 8px;
+    }
+
+    .hud-row {
+      display: flex;
+      justify-content: space-between;
+      gap: 12px;
+      font-size: 12px;
+      line-height: 1.9;
+    }
+
+    .hud-label { color: rgba(255,255,255,0.4); }
+    .hud-val   { color: var(--accent); }
+    .hud-val.warn { color: var(--warn); }   /* fps dropping? go orange */
+    .hud-val.ok   { color: var(--ok); }     /* all good, go green */
+
+    /* little badge that shows which pipeline stage we're currently in */
+    #stage-badge {
+      margin-top: 8px;
+      padding: 4px 8px;
+      background: rgba(80,200,255,0.08);
+      border: 1px solid var(--hud-border);
+      border-radius: 4px;
+      font-size: 11px;
+      text-align: center;
+      letter-spacing: 1px;
+      color: var(--ok);
+      text-shadow: 0 0 6px var(--ok);
+    }
+
+    /* --- floating control bar at the bottom ---------------------------- */
+    #controls {
+      position: fixed;
+      bottom: 20px;
+      left: 50%;
+      transform: translateX(-50%);   /* classic "center a fixed element" trick */
+      background: var(--panel-bg);
+      border: 1px solid var(--hud-border);
+      border-radius: 40px;
+      padding: 10px 28px;
+      display: flex;
+      align-items: center;
+      gap: 20px;
+      backdrop-filter: blur(8px);
+      box-shadow: 0 0 30px rgba(80,200,255,0.08);
+    }
+
+    #controls label {
+      font-size: 11px;
+      color: rgba(255,255,255,0.45);
+      letter-spacing: 1px;
+    }
+
+    #btn-playpause {
+      background: none;
+      border: 1px solid var(--accent);
+      color: var(--accent);
+      font-family: 'Share Tech Mono', monospace;
+      font-size: 12px;
+      letter-spacing: 2px;
+      padding: 6px 18px;
+      border-radius: 24px;
+      cursor: pointer;
+      transition: background 0.2s, box-shadow 0.2s;
+    }
+    #btn-playpause:hover {
+      background: rgba(80,200,255,0.12);
+      box-shadow: 0 0 12px rgba(80,200,255,0.3);
+    }
+
+    /* custom slider — the browser default is hideous */
+    #speed-slider {
+      -webkit-appearance: none;
+      appearance: none;
+      width: 120px;
+      height: 3px;
+      background: rgba(80,200,255,0.2);
+      border-radius: 2px;
+      outline: none;
+      cursor: pointer;
+    }
+    #speed-slider::-webkit-slider-thumb {
+      -webkit-appearance: none;
+      width: 14px; height: 14px;
+      border-radius: 50%;
+      background: var(--accent);
+      box-shadow: 0 0 8px var(--accent);
+      cursor: pointer;
+    }
+
+    #speed-val {
+      font-size: 12px;
+      color: var(--warn);
+      min-width: 36px;
+    }
+
+    /* title block — top-right corner, purely decorative */
+    #title {
+      position: fixed;
+      top: 16px;
+      right: 20px;
+      text-align: right;
+      pointer-events: none;
+    }
+    #title h1 {
+      font-family: 'Exo 2', sans-serif;
+      font-weight: 300;
+      font-size: 20px;
+      letter-spacing: 6px;
+      color: rgba(255,255,255,0.75);
+      text-shadow: 0 0 20px rgba(80,200,255,0.4);
+    }
+    #title p {
+      font-size: 10px;
+      letter-spacing: 2px;
+      color: rgba(80,200,255,0.35);
+      margin-top: 3px;
+    }
+  </style>
+</head>
+<body>
+
+<canvas id="c"></canvas>
+
+<!-- the heads-up display — shows fps, angles, and which pipeline stage is active -->
+<div id="hud">
+  <h2>Mission Control</h2>
+  <div class="hud-row"><span class="hud-label">FPS</span>         <span class="hud-val" id="h-fps">0</span></div>
+  <div class="hud-row"><span class="hud-label">Sim Time</span>    <span class="hud-val" id="h-time">0.00s</span></div>
+  <div class="hud-row"><span class="hud-label">Earth Angle</span> <span class="hud-val" id="h-earth">0°</span></div>
+  <div class="hud-row"><span class="hud-label">Moon Angle</span>  <span class="hud-val" id="h-moon">0°</span></div>
+  <div class="hud-row"><span class="hud-label">Comet Speed</span> <span class="hud-val warn" id="h-comet">—</span></div>
+  <div id="stage-badge" id="h-stage">INIT</div>
+</div>
+
+<!-- purely cosmetic branding, top-right -->
+<div id="title">
+  <h1>SOLAR SYSTEM</h1>
+  <p>CANVAS SIMULATOR · v1.0</p>
+</div>
+
+<!-- play/pause + speed slider, pinned to the bottom centre -->
+<div id="controls">
+  <button id="btn-playpause">⏸ PAUSE</button>
+  <label>SPEED</label>
+  <input type="range" id="speed-slider" min="0.1" max="5" step="0.05" value="1">
+  <span id="speed-val">1.00×</span>
+</div>
+
+<script>
+/*
+  Solar System Simulator
+  Pure HTML5 Canvas + Vanilla JS — no libraries, no build step, just open and go.
+
+  The code is split into three named pipeline stages that mirror how a real
+  graphics engine works:
+    APPLICATION  — "what's happening in the world?" (angles, timers, physics)
+    GEOMETRY     — "where does everything end up on screen?" (maths, transforms)
+    RASTERIZATION — "actually paint the pixels" (canvas draw calls)
+*/
+
+// grab the canvas and its 2D context — everything we draw goes through ctx
+const canvas = document.getElementById('c');
+const ctx    = canvas.getContext('2d');
+
+// make the canvas fill the whole browser window, and re-do it whenever the user resizes
+function resize() {
+  canvas.width  = window.innerWidth;
+  canvas.height = window.innerHeight;
+}
+resize();
+window.addEventListener('resize', resize);
+
+// cache all the HUD DOM elements — we update these every frame so it's worth grabbing them once
+const hFps   = document.getElementById('h-fps');
+const hTime  = document.getElementById('h-time');
+const hEarth = document.getElementById('h-earth');
+const hMoon  = document.getElementById('h-moon');
+const hComet = document.getElementById('h-comet');
+const hStage = document.getElementById('stage-badge');
+
+// and the controls
+const btnPlay     = document.getElementById('btn-playpause');
+const speedSlider = document.getElementById('speed-slider');
+const speedVal    = document.getElementById('speed-val');
+
+
+// =============================================================================
+// === APPLICATION STAGE ===
+// Everything below is simulation state — no drawing happens here, just numbers
+// that describe what the world looks like at any given moment.
+// =============================================================================
+
+let paused    = false;
+let speedMult = 1.0;
+let simTime   = 0;    // how many (sped-up) seconds have passed since we started
+
+// we sample FPS every half-second so the number doesn't flicker like crazy
+let lastTs     = 0;
+let fps        = 0;
+let frameCount = 0;
+let fpsTimer   = 0;
+
+// each planet has one angle (in radians) that advances every frame
+let earthAngle   = 0;
+let moonAngle    = 0;
+let marsAngle    = 0;
+let jupiterAngle = 0;
+let venusAngle   = 0;
+
+// how long each body takes to complete one orbit (real-wall-clock seconds at 1× speed)
+// these are deliberately compressed — watching a real year would be boring
+const EARTH_PERIOD   = 20;
+const MOON_PERIOD    = 4;
+const MARS_PERIOD    = 37;
+const JUPITER_PERIOD = 100;
+const VENUS_PERIOD   = 12;
+
+// orbit radii defined at a 900px reference width; we scale everything at draw time
+// so the sim looks the same on a phone and a 4K monitor
+const SUN_R         = 55;
+const EARTH_ORBIT   = 200;
+const MOON_ORBIT    = 50;
+const MARS_ORBIT    = 310;
+const JUPITER_ORBIT = 420;
+const VENUS_ORBIT   = 140;
+
+// stars are generated once at startup — positions stored as 0–1 fractions
+// so they survive window resizes without needing to regenerate
+const STAR_COUNT = 280;
+const stars = [];
+
+// the comet flies across the scene every ~6 seconds then disappears off the edge
+const comet = {
+  x: 0, y: 0,
+  vx: 0, vy: 0,
+  active: false,
+  timer: 0,
+  spawnInterval: 6,   // seconds to wait before firing another one
+  tailLen: 0,
+  brightness: 0
+};
+
+// asteroid belt — just a ring of tiny dots drifting slowly around the sun
+const BELT_COUNT = 180;
+const belt = [];
+
+// nebulae are blurry coloured ellipses painted behind everything else
+// they never move, just add depth to the background
+const NEBULA_COUNT = 4;
+const nebulae = [];
+
+// we update this string as we move through each pipeline stage,
+// then display it in the HUD badge so you can see the flow live
+let currentStage = 'APPLICATION';
+
+
+// --- one-time setup functions ------------------------------------------------
+
+function initStars() {
+  for (let i = 0; i < STAR_COUNT; i++) {
+    stars.push({
+      x: Math.random(),           // stored as 0–1, multiplied by canvas size when drawn
+      y: Math.random(),
+      r: Math.random() * 1.6 + 0.3,
+      baseAlpha: Math.random() * 0.6 + 0.3,
+      twinkleSpeed: Math.random() * 2 + 0.5,   // how fast this star pulses
+      twinklePhase: Math.random() * Math.PI * 2, // offset so they don't all pulse in sync
+      color: randomStarColor()
+    });
+  }
+}
+
+function randomStarColor() {
+  // real stars range from blue-white (hot) to orange-red (cool)
+  // this palette roughly covers that range without being too science-y about it
+  const palette = ['#ffffff', '#cce8ff', '#ffd8a8', '#ffe4b5', '#a8d8ff', '#ffcce8'];
+  return palette[Math.floor(Math.random() * palette.length)];
+}
+
+function initBelt() {
+  for (let i = 0; i < BELT_COUNT; i++) {
+    belt.push({
+      angle:  Math.random() * Math.PI * 2,
+      orbitR: 358 + (Math.random() - 0.5) * 30,  // scattered between Mars and Jupiter
+      r:      Math.random() * 1.5 + 0.4,
+      // most rocks go the same way, but let's have a few rebels going backwards
+      speed:  (Math.random() * 0.2 + 0.05) * (Math.random() < 0.5 ? 1 : -1) * 0.01,
+      alpha:  Math.random() * 0.5 + 0.2
+    });
+  }
+}
+
+function initNebulae() {
+  // each nebula gets two colours that blend from centre outward
+  const colors = [
+    ['rgba(80,30,150,',  'rgba(30,60,180,'],
+    ['rgba(20,80,120,',  'rgba(60,20,100,'],
+    ['rgba(140,40,40,',  'rgba(80,20,80,'],
+    ['rgba(20,100,80,',  'rgba(30,40,120,']
+  ];
+  for (let i = 0; i < NEBULA_COUNT; i++) {
+    nebulae.push({
+      nx:       Math.random(),       // normalised position, same trick as stars
+      ny:       Math.random(),
+      rx:       180 + Math.random() * 160,   // horizontal radius
+      ry:       80  + Math.random() * 100,   // vertical radius — always shorter so it looks stretched
+      rotation: Math.random() * Math.PI,
+      c1:       colors[i][0],
+      c2:       colors[i][1]
+    });
+  }
+}
+
+function spawnComet() {
+  // pick a random screen edge to launch from
+  const edge = Math.floor(Math.random() * 4);
+  const W = canvas.width, H = canvas.height;
+  let sx, sy;
+  if      (edge === 0) { sx = Math.random() * W; sy = -30; }       // top
+  else if (edge === 1) { sx = W + 30; sy = Math.random() * H; }    // right
+  else if (edge === 2) { sx = Math.random() * W; sy = H + 30; }    // bottom
+  else                 { sx = -30; sy = Math.random() * H; }        // left
+
+  // aim roughly at the sun, with a bit of random offset so it doesn't always
+  // fly straight through the middle
+  const cx   = W / 2 + (Math.random() - 0.5) * 250;
+  const cy   = H / 2 + (Math.random() - 0.5) * 250;
+  const dist = Math.hypot(cx - sx, cy - sy);
+  const speed = 250 + Math.random() * 180;
+
+  comet.x          = sx;
+  comet.y          = sy;
+  comet.vx         = (cx - sx) / dist * speed;
+  comet.vy         = (cy - sy) / dist * speed;
+  comet.active     = true;
+  comet.tailLen    = 80 + Math.random() * 120;
+  comet.brightness = 0.7 + Math.random() * 0.3;
+}
+
+// run all the setup
+initStars();
+initBelt();
+initNebulae();
+
+
+// --- user input --------------------------------------------------------------
+
+btnPlay.addEventListener('click', () => {
+  paused = !paused;
+  btnPlay.textContent = paused ? '▶ PLAY' : '⏸ PAUSE';
+});
+
+speedSlider.addEventListener('input', () => {
+  speedMult = parseFloat(speedSlider.value);
+  speedVal.textContent = speedMult.toFixed(2) + '×';
+});
+
+
+// =============================================================================
+// MAIN LOOP — called by requestAnimationFrame, roughly 60 times a second
+// This is where the three pipeline stages visibly hand off to each other
+// =============================================================================
+
+function loop(ts) {
+  requestAnimationFrame(loop);
+
+  // ts is the timestamp from rAF in milliseconds; convert to seconds and cap
+  // at 50ms so a tab that was backgrounded doesn't explode when it comes back
+  const dt = Math.min((ts - lastTs) / 1000, 0.05);
+  lastTs = ts;
+
+
+  // ===========================================================================
+  // === APPLICATION STAGE ===
+  // Advance all the simulation state — positions, timers, counters.
+  // Nothing gets drawn yet; we're just deciding what the world looks like now.
+  // ===========================================================================
+  currentStage = 'APPLICATION STAGE';
+
+  if (!paused) {
+    const simDt = dt * speedMult;   // scale real time by the speed multiplier
+    simTime += simDt;
+
+    // nudge every planet along its orbit by the right fraction of a full turn
+    earthAngle   += (Math.PI * 2 / EARTH_PERIOD)   * simDt;
+    moonAngle    += (Math.PI * 2 / MOON_PERIOD)     * simDt;
+    marsAngle    += (Math.PI * 2 / MARS_PERIOD)     * simDt;
+    jupiterAngle += (Math.PI * 2 / JUPITER_PERIOD)  * simDt;
+    venusAngle   += (Math.PI * 2 / VENUS_PERIOD)    * simDt;
+
+    // drift the asteroid rocks around their ring
+    for (const p of belt) {
+      p.angle += p.speed * simDt * 60;
+    }
+
+    // comet: count down to the next launch, then move it every frame until it exits
+    comet.timer += simDt;
+    if (!comet.active && comet.timer > comet.spawnInterval) {
+      comet.timer = 0;
+      spawnComet();
+    }
+    if (comet.active) {
+      comet.x += comet.vx * simDt;
+      comet.y += comet.vy * simDt;
+      // once it's well off-screen on any side, retire it and start the countdown again
+      const W = canvas.width, H = canvas.height;
+      if (comet.x < -150 || comet.x > W + 150 ||
+          comet.y < -150 || comet.y > H + 150) {
+        comet.active = false;
+        comet.timer  = 0;
+      }
+    }
+  }
+
+  // count frames over a half-second window so the fps display doesn't jitter
+  frameCount++;
+  fpsTimer += dt;
+  if (fpsTimer >= 0.5) {
+    fps        = Math.round(frameCount / fpsTimer);
+    frameCount = 0;
+    fpsTimer   = 0;
+  }
+
+
+  // ===========================================================================
+  // === GEOMETRY STAGE ===
+  // Work out where every object lands on screen this frame.
+  // Pure maths — no drawing calls, just calculating final pixel coordinates.
+  // ===========================================================================
+  currentStage = 'GEOMETRY STAGE';
+
+  const W = canvas.width;
+  const H = canvas.height;
+
+  // one scale factor so the scene looks the same regardless of window size
+  const scale = Math.min(W, H) / 900;
+
+  // sun always lives in the exact centre
+  const sunX = W / 2;
+  const sunY = H / 2;
+
+  // each planet: rotate its angle, multiply by scaled orbit radius → screen coords
+  const earthR = EARTH_ORBIT * scale;
+  const earthX = sunX + Math.cos(earthAngle) * earthR;
+  const earthY = sunY + Math.sin(earthAngle) * earthR;
+
+  // the moon orbits Earth, not the Sun, so its position is relative to Earth's
+  const moonR = MOON_ORBIT * scale;
+  const moonX = earthX + Math.cos(moonAngle) * moonR;
+  const moonY = earthY + Math.sin(moonAngle) * moonR;
+
+  const marsR = MARS_ORBIT * scale;
+  const marsX = sunX + Math.cos(marsAngle) * marsR;
+  const marsY = sunY + Math.sin(marsAngle) * marsR;
+
+  const jupR = JUPITER_ORBIT * scale;
+  const jupX = sunX + Math.cos(jupiterAngle) * jupR;
+  const jupY = sunY + Math.sin(jupiterAngle) * jupR;
+
+  const venR = VENUS_ORBIT * scale;
+  const venX = sunX + Math.cos(venusAngle) * venR;
+  const venY = sunY + Math.sin(venusAngle) * venR;
+
+
+  // ===========================================================================
+  // === RASTERIZATION STAGE ===
+  // We now have all the coordinates. Time to actually paint pixels.
+  // Order matters — things drawn later appear on top.
+  // ===========================================================================
+  currentStage = 'RASTERIZATION STAGE';
+
+  ctx.clearRect(0, 0, W, H);   // wipe last frame completely
+
+  drawBackground(W, H);               // deep space gradient
+  drawNebulae(W, H);                  // soft coloured clouds behind the stars
+  drawStars(W, H, simTime);           // 280 twinkling dots
+  drawOrbits(sunX, sunY, scale);      // faint dashed orbital rings
+  drawAsteroidBelt(sunX, sunY, scale); // ring of tiny rocks between Mars and Jupiter
+  if (comet.active) drawComet();      // streak across the sky if one is flying
+
+  // outer planets first so they can hide behind the sun when they pass behind it
+  drawPlanet(jupX, jupY, 22 * scale, 'jupiter');
+  drawPlanet(marsX, marsY, 10 * scale, 'mars');
+  drawPlanet(venX, venY, 12 * scale, 'venus');
+
+  drawSun(sunX, sunY, SUN_R * scale, simTime);   // sun draws over the belt but under inner planets
+
+  drawPlanet(earthX, earthY, 14 * scale, 'earth');
+  drawMoon(moonX, moonY, 5 * scale, moonAngle);
+
+  drawLensFlare(sunX, sunY, scale, simTime);  // camera artifact on top of everything
+
+
+  // back to APPLICATION for the dom write — reading state, pushing to HUD
+  currentStage = 'APPLICATION STAGE';
+  updateHUD(simTime, scale);
+}
+
+
+// =============================================================================
+// DRAW FUNCTIONS
+// Each function handles its own save/restore and labels which pipeline stage
+// its internal work belongs to.
+// =============================================================================
+
+// --- background --------------------------------------------------------------
+
+function drawBackground(W, H) {
+  // === RASTERIZATION STAGE ===
+  // a radial gradient that's slightly brighter in the middle — gives the
+  // impression of looking into the galaxy rather than a flat black rectangle
+  const grad = ctx.createRadialGradient(W/2, H/2, 0, W/2, H/2, Math.max(W,H) * 0.8);
+  grad.addColorStop(0,   'rgba(5, 8, 30, 1)');
+  grad.addColorStop(0.5, 'rgba(2, 4, 18, 1)');
+  grad.addColorStop(1,   'rgba(0, 0, 6, 1)');
+  ctx.fillStyle = grad;
+  ctx.fillRect(0, 0, W, H);
+}
+
+
+// --- nebulae -----------------------------------------------------------------
+
+function drawNebulae(W, H) {
+  for (const neb of nebulae) {
+    ctx.save();
+
+    // === GEOMETRY STAGE ===
+    // move origin to the nebula centre, rotate it, then squash it vertically
+    // to turn the circular gradient into an ellipse without complicated math
+    ctx.translate(neb.nx * W, neb.ny * H);
+    ctx.rotate(neb.rotation);
+    ctx.scale(1, neb.ry / neb.rx);
+
+    // === RASTERIZATION STAGE ===
+    const grad = ctx.createRadialGradient(0, 0, 0, 0, 0, neb.rx);
+    grad.addColorStop(0,   neb.c1 + '0.12)');
+    grad.addColorStop(0.5, neb.c2 + '0.06)');
+    grad.addColorStop(1,   'rgba(0,0,0,0)');
+    ctx.fillStyle = grad;
+    ctx.beginPath();
+    ctx.arc(0, 0, neb.rx, 0, Math.PI * 2);
+    ctx.fill();
+
+    ctx.restore();
+  }
+}
+
+
+// --- stars -------------------------------------------------------------------
+
+function drawStars(W, H, t) {
+  for (const s of stars) {
+    // === GEOMETRY STAGE ===
+    // convert the stored 0–1 fractions back to real pixel coords for this frame's canvas size
+    const sx = s.x * W;
+    const sy = s.y * H;
+
+    // a sine wave on each star's own speed + phase gives the twinkle effect
+    // without every star pulsing in lockstep
+    const twinkle = 0.5 + 0.5 * Math.sin(t * s.twinkleSpeed + s.twinklePhase);
+    const alpha   = s.baseAlpha * (0.55 + 0.45 * twinkle);
+
+    // === RASTERIZATION STAGE ===
+    ctx.save();
+    ctx.globalAlpha = alpha;
+    ctx.fillStyle   = s.color;
+    ctx.beginPath();
+    ctx.arc(sx, sy, s.r, 0, Math.PI * 2);
+    ctx.fill();
+
+    // bigger stars get a soft radial glow around them — tiny ones don't need it
+    if (s.r > 1.2) {
+      const glow = ctx.createRadialGradient(sx, sy, 0, sx, sy, s.r * 4);
+      glow.addColorStop(0, s.color.replace(')', ', 0.35)').replace('rgb', 'rgba'));
+      glow.addColorStop(1, 'rgba(0,0,0,0)');
+      ctx.fillStyle = glow;
+      ctx.beginPath();
+      ctx.arc(sx, sy, s.r * 4, 0, Math.PI * 2);
+      ctx.fill();
+    }
+    ctx.restore();
+  }
+}
+
+
+// --- orbital rings -----------------------------------------------------------
+
+function drawOrbits(cx, cy, scale) {
+  // === GEOMETRY STAGE + RASTERIZATION STAGE ===
+  // just faint dashed circles so you can see the paths even when a planet
+  // is on the far side of the sun
+  const orbits = [VENUS_ORBIT, EARTH_ORBIT, MARS_ORBIT, JUPITER_ORBIT];
+  const colors = [
+    'rgba(255,200,100,0.12)',
+    'rgba(80,200,255,0.12)',
+    'rgba(255,120,80,0.12)',
+    'rgba(255,200,140,0.10)'
+  ];
+
+  for (let i = 0; i < orbits.length; i++) {
+    ctx.save();
+    ctx.strokeStyle = colors[i];
+    ctx.lineWidth   = 1;
+    ctx.setLineDash([4, 6]);
+    ctx.beginPath();
+    ctx.arc(cx, cy, orbits[i] * scale, 0, Math.PI * 2);
+    ctx.stroke();
+    ctx.setLineDash([]);  // always reset dash — forgetting this causes weird bugs elsewhere
+    ctx.restore();
+  }
+}
+
+
+// --- asteroid belt -----------------------------------------------------------
+
+function drawAsteroidBelt(cx, cy, scale) {
+  for (const p of belt) {
+    // === GEOMETRY STAGE ===
+    // each rock has an angle that slowly advances in the main loop;
+    // here we just project that angle + radius onto screen coords
+    const px = cx + Math.cos(p.angle) * p.orbitR * scale;
+    const py = cy + Math.sin(p.angle) * p.orbitR * scale;
+
+    // === RASTERIZATION STAGE ===
+    ctx.save();
+    ctx.globalAlpha = p.alpha;
+    ctx.fillStyle   = '#c8b89a';   // sandy/rocky colour
+    ctx.beginPath();
+    ctx.arc(px, py, p.r * scale, 0, Math.PI * 2);
+    ctx.fill();
+    ctx.restore();
+  }
+}
+
+
+// --- sun ---------------------------------------------------------------------
+
+function drawSun(cx, cy, r, t) {
+  ctx.save();
+
+  // === GEOMETRY STAGE ===
+  ctx.translate(cx, cy);   // everything from here draws relative to the sun's centre
+
+  // the corona breathing in and out very subtly — 3% size oscillation
+  const pulse = 0.97 + 0.03 * Math.sin(t * 1.8);
+
+  // === RASTERIZATION STAGE ===
+
+  // layer 1: the huge outer corona — very transparent, fades to nothing
+  const corona = ctx.createRadialGradient(0, 0, r * 0.5, 0, 0, r * 4.5 * pulse);
+  corona.addColorStop(0,   'rgba(255,220,60,0.22)');
+  corona.addColorStop(0.3, 'rgba(255,140,20,0.10)');
+  corona.addColorStop(0.7, 'rgba(255,80,0,0.04)');
+  corona.addColorStop(1,   'rgba(0,0,0,0)');
+  ctx.fillStyle = corona;
+  ctx.beginPath();
+  ctx.arc(0, 0, r * 4.5 * pulse, 0, Math.PI * 2);
+  ctx.fill();
+
+  // layer 2: tighter mid-glow, much more visible
+  const midglow = ctx.createRadialGradient(0, 0, r * 0.3, 0, 0, r * 2.2);
+  midglow.addColorStop(0,   'rgba(255,240,120,0.55)');
+  midglow.addColorStop(0.5, 'rgba(255,180,20,0.2)');
+  midglow.addColorStop(1,   'rgba(0,0,0,0)');
+  ctx.fillStyle = midglow;
+  ctx.beginPath();
+  ctx.arc(0, 0, r * 2.2, 0, Math.PI * 2);
+  ctx.fill();
+
+  // layer 3: the actual solar disc — shifted highlight gives it a 3D sphere look
+  const sunGrad = ctx.createRadialGradient(-r * 0.25, -r * 0.25, r * 0.05, 0, 0, r);
+  sunGrad.addColorStop(0,   '#fff9b0');   // almost white at the hot spot
+  sunGrad.addColorStop(0.2, '#ffe050');
+  sunGrad.addColorStop(0.6, '#ff9a00');
+  sunGrad.addColorStop(1,   '#b34a00');   // deep orange-red at the limb
+  ctx.fillStyle = sunGrad;
+  ctx.beginPath();
+  ctx.arc(0, 0, r, 0, Math.PI * 2);
+  ctx.fill();
+
+  // solar prominences drawn on top of the disc itself
+  drawSolarProminences(r, t);
+
+  ctx.restore();
+}
+
+function drawSolarProminences(r, t) {
+  // eight spiky protrusions sticking out from the sun's edge
+  // each one wobbles at its own frequency so they look alive
+  const numSpikes = 8;
+
+  for (let i = 0; i < numSpikes; i++) {
+    // === GEOMETRY STAGE ===
+    // evenly space them, then rotate the whole set slowly over time
+    const angle  = (i / numSpikes) * Math.PI * 2 + t * 0.3;
+    const len    = r * (0.4 + 0.25 * Math.sin(t * 2.1 + i * 1.3));
+    const spread = 0.14;   // how wide the base of each spike is
+
+    // === RASTERIZATION STAGE ===
+    ctx.save();
+    ctx.rotate(angle);
+
+    const spikeGrad = ctx.createLinearGradient(0, -r, 0, -(r + len));
+    spikeGrad.addColorStop(0, 'rgba(255,160,0,0.45)');
+    spikeGrad.addColorStop(1, 'rgba(255,80,0,0)');
+    ctx.fillStyle   = spikeGrad;
+    ctx.globalAlpha = 0.6;
+
+    // draw a thin pointed triangle poking outward from the sun's circumference
+    ctx.beginPath();
+    ctx.moveTo(0, -r);
+    ctx.lineTo( Math.sin(spread) * r * 0.6, -(r + len * 0.1));
+    ctx.lineTo(0, -(r + len));
+    ctx.lineTo(-Math.sin(spread) * r * 0.6, -(r + len * 0.1));
+    ctx.closePath();
+    ctx.fill();
+
+    ctx.restore();
+  }
+}
+
+
+// --- lens flare --------------------------------------------------------------
+
+function drawLensFlare(cx, cy, scale, t) {
+  // === RASTERIZATION STAGE ===
+  // this fake camera artifact — two crossing streaks of light — sells the
+  // illusion that you're looking at something genuinely bright
+  ctx.save();
+  ctx.globalAlpha = 0.18 + 0.04 * Math.sin(t * 0.9);  // breathes very gently
+
+  // horizontal streak
+  const streak = ctx.createLinearGradient(cx - 180 * scale, cy, cx + 180 * scale, cy);
+  streak.addColorStop(0,    'rgba(255,255,200,0)');
+  streak.addColorStop(0.45, 'rgba(255,255,200,0.8)');
+  streak.addColorStop(0.5,  'rgba(255,255,255,1)');
+  streak.addColorStop(0.55, 'rgba(255,255,200,0.8)');
+  streak.addColorStop(1,    'rgba(255,255,200,0)');
+  ctx.fillStyle = streak;
+  ctx.fillRect(cx - 180 * scale, cy - 1.5 * scale, 360 * scale, 3 * scale);
+
+  // vertical streak (same idea, rotated 90°)
+  const streakV = ctx.createLinearGradient(cx, cy - 120 * scale, cx, cy + 120 * scale);
+  streakV.addColorStop(0,    'rgba(255,255,200,0)');
+  streakV.addColorStop(0.45, 'rgba(255,255,200,0.6)');
+  streakV.addColorStop(0.5,  'rgba(255,255,255,0.9)');
+  streakV.addColorStop(0.55, 'rgba(255,255,200,0.6)');
+  streakV.addColorStop(1,    'rgba(255,255,200,0)');
+  ctx.fillStyle = streakV;
+  ctx.fillRect(cx - 1.5 * scale, cy - 120 * scale, 3 * scale, 240 * scale);
+
+  ctx.restore();
+}
+
+
+// --- planets -----------------------------------------------------------------
+
+function drawPlanet(cx, cy, r, type) {
+  ctx.save();
+
+  // === GEOMETRY STAGE ===
+  ctx.translate(cx, cy);   // draw everything relative to this planet's centre
+
+  // visual settings per planet — colour stops and atmosphere size vary
+  // keeping this as a lookup table is much nicer than a big if/else chain
+  const config = {
+    earth: {
+      c0: '#9be4ff', c1: '#1a8a3f', c2: '#0a3a8a',
+      atmosphereColor: 'rgba(100,180,255,0.3)',
+      atmosphereR: 1.38
+    },
+    mars: {
+      c0: '#ffb87a', c1: '#c0522a', c2: '#7a2a10',
+      atmosphereColor: 'rgba(200,100,60,0.18)',
+      atmosphereR: 1.3
+    },
+    venus: {
+      c0: '#ffe89a', c1: '#d4a020', c2: '#8a6010',
+      atmosphereColor: 'rgba(255,220,80,0.25)',
+      atmosphereR: 1.4     // Venus has a thick atmosphere so it's wider than the others
+    },
+    jupiter: {
+      c0: '#ffd8a0', c1: '#c87840', c2: '#784020',
+      atmosphereColor: 'rgba(220,160,80,0.15)',
+      atmosphereR: 1.25,
+      bands: true          // Jupiter gets horizontal cloud bands on top
+    }
+  };
+
+  const cfg = config[type] || config.earth;   // fall back to earth if something weird comes in
+
+  // === RASTERIZATION STAGE ===
+
+  // atmosphere halo: a radial gradient just beyond the planet's edge
+  const atmoGrad = ctx.createRadialGradient(0, 0, r * 0.8, 0, 0, r * cfg.atmosphereR);
+  atmoGrad.addColorStop(0, cfg.atmosphereColor);
+  atmoGrad.addColorStop(1, 'rgba(0,0,0,0)');
+  ctx.fillStyle = atmoGrad;
+  ctx.beginPath();
+  ctx.arc(0, 0, r * cfg.atmosphereR, 0, Math.PI * 2);
+  ctx.fill();
+
+  // planet body: the light source is off to the upper-left, so the highlight
+  // is shifted in that direction rather than centred
+  const sphereGrad = ctx.createRadialGradient(-r * 0.3, -r * 0.3, r * 0.05, 0, 0, r);
+  sphereGrad.addColorStop(0,    cfg.c0);
+  sphereGrad.addColorStop(0.45, cfg.c1);
+  sphereGrad.addColorStop(1,    cfg.c2);
+  ctx.fillStyle = sphereGrad;
+  ctx.beginPath();
+  ctx.arc(0, 0, r, 0, Math.PI * 2);
+  ctx.fill();
+
+  if (cfg.bands) drawJupiterBands(r);
+
+  // night-side shadow: a dark gradient on the right (away from the sun)
+  const shadowGrad = ctx.createRadialGradient(r * 0.4, 0, r * 0.1, r * 0.4, 0, r * 1.2);
+  shadowGrad.addColorStop(0,   'rgba(0,0,0,0.55)');
+  shadowGrad.addColorStop(0.5, 'rgba(0,0,0,0.2)');
+  shadowGrad.addColorStop(1,   'rgba(0,0,0,0)');
+  ctx.fillStyle = shadowGrad;
+  ctx.beginPath();
+  ctx.arc(0, 0, r, 0, Math.PI * 2);
+  ctx.fill();
+
+  // tiny specular highlight in the upper-left — sells the glass-ball look
+  const specGrad = ctx.createRadialGradient(-r * 0.35, -r * 0.35, 0, -r * 0.35, -r * 0.35, r * 0.55);
+  specGrad.addColorStop(0,   'rgba(255,255,255,0.38)');
+  specGrad.addColorStop(0.5, 'rgba(255,255,255,0.06)');
+  specGrad.addColorStop(1,   'rgba(255,255,255,0)');
+  ctx.fillStyle = specGrad;
+  ctx.beginPath();
+  ctx.arc(0, 0, r, 0, Math.PI * 2);
+  ctx.fill();
+
+  ctx.restore();
+}
+
+function drawJupiterBands(r) {
+  // clip to the planet circle first, then just paint rectangles across it —
+  // the clip does the hard work of making them curve-shaped for free
+  ctx.save();
+  ctx.beginPath();
+  ctx.arc(0, 0, r, 0, Math.PI * 2);
+  ctx.clip();
+
+  const bandColors = [
+    'rgba(200,130,60,0.25)',
+    'rgba(255,200,140,0.18)',
+    'rgba(180,100,40,0.22)',
+    'rgba(240,180,100,0.15)'
+  ];
+
+  for (let i = 0; i < bandColors.length; i++) {
+    // === GEOMETRY STAGE ===
+    // spread bands evenly top to bottom
+    const y = -r + (i + 0.5) * (r * 2 / (bandColors.length + 0.5));
+    // === RASTERIZATION STAGE ===
+    ctx.fillStyle = bandColors[i];
+    ctx.fillRect(-r, y - r * 0.18, r * 2, r * 0.36);
+  }
+
+  ctx.restore();
+}
+
+
+// --- moon --------------------------------------------------------------------
+
+function drawMoon(cx, cy, r, angle) {
+  ctx.save();
+
+  // === GEOMETRY STAGE ===
+  ctx.translate(cx, cy);
+
+  // === RASTERIZATION STAGE ===
+  // same sphere trick as the planets — shifted highlight for the lit side
+  const moonGrad = ctx.createRadialGradient(-r * 0.25, -r * 0.25, r * 0.05, 0, 0, r);
+  moonGrad.addColorStop(0,   '#e8e8d8');   // pale grey highlight
+  moonGrad.addColorStop(0.5, '#b0b0a0');
+  moonGrad.addColorStop(1,   '#505048');   // almost dark on the shadow side
+  ctx.fillStyle = moonGrad;
+  ctx.beginPath();
+  ctx.arc(0, 0, r, 0, Math.PI * 2);
+  ctx.fill();
+
+  // shadow on the right side, same approach as the planets
+  const shadow = ctx.createRadialGradient(r * 0.3, 0, r * 0.1, r * 0.3, 0, r * 1.1);
+  shadow.addColorStop(0,   'rgba(0,0,0,0.6)');
+  shadow.addColorStop(0.6, 'rgba(0,0,0,0.2)');
+  shadow.addColorStop(1,   'rgba(0,0,0,0)');
+  ctx.fillStyle = shadow;
+  ctx.beginPath();
+  ctx.arc(0, 0, r, 0, Math.PI * 2);
+  ctx.fill();
+
+  ctx.restore();
+}
+
+
+// --- comet -------------------------------------------------------------------
+
+function drawComet() {
+  // === GEOMETRY STAGE ===
+  // the tail points opposite to the direction of travel —
+  // normalise the velocity vector and flip it
+  const vLen = Math.hypot(comet.vx, comet.vy);
+  const nx = -comet.vx / vLen;
+  const ny = -comet.vy / vLen;
+
+  // tail tip position — how far behind the nucleus the tail reaches
+  const tx = comet.x + nx * comet.tailLen;
+  const ty = comet.y + ny * comet.tailLen;
+
+  // === RASTERIZATION STAGE ===
+  ctx.save();
+
+  // thin bright core of the tail — the part that looks like a streak of light
+  const tailGrad = ctx.createLinearGradient(comet.x, comet.y, tx, ty);
+  tailGrad.addColorStop(0,   `rgba(160,220,255,${0.7 * comet.brightness})`);
+  tailGrad.addColorStop(0.3, `rgba(80,160,255,${0.3 * comet.brightness})`);
+  tailGrad.addColorStop(1,   'rgba(0,0,0,0)');
+  ctx.strokeStyle = tailGrad;
+  ctx.lineWidth   = 3;
+  ctx.lineCap     = 'round';
+  ctx.globalAlpha = comet.brightness;
+  ctx.beginPath();
+  ctx.moveTo(comet.x, comet.y);
+  ctx.lineTo(tx, ty);
+  ctx.stroke();
+
+  // wider, much fainter secondary tail for that gaseous coma look
+  ctx.lineWidth   = 10;
+  ctx.globalAlpha = comet.brightness * 0.15;
+  const wideTailGrad = ctx.createLinearGradient(comet.x, comet.y, tx, ty);
+  wideTailGrad.addColorStop(0, 'rgba(180,220,255,1)');
+  wideTailGrad.addColorStop(1, 'rgba(0,0,0,0)');
+  ctx.strokeStyle = wideTailGrad;
+  ctx.beginPath();
+  ctx.moveTo(comet.x, comet.y);
+  ctx.lineTo(tx, ty);
+  ctx.stroke();
+
+  // the nucleus itself: a tight glowing dot at the head of the comet
+  ctx.globalAlpha = comet.brightness;
+  const nucleusGrad = ctx.createRadialGradient(comet.x, comet.y, 0, comet.x, comet.y, 8);
+  nucleusGrad.addColorStop(0,   'rgba(255,255,255,1)');
+  nucleusGrad.addColorStop(0.4, 'rgba(180,220,255,0.8)');
+  nucleusGrad.addColorStop(1,   'rgba(0,0,0,0)');
+  ctx.fillStyle = nucleusGrad;
+  ctx.beginPath();
+  ctx.arc(comet.x, comet.y, 8, 0, Math.PI * 2);
+  ctx.fill();
+
+  ctx.restore();
+}
+
+
+// --- HUD ---------------------------------------------------------------------
+
+function updateHUD(t, scale) {
+  // === APPLICATION STAGE ===
+  // just reading simulation state and pushing it into the DOM — no canvas work here
+
+  hFps.textContent  = fps + ' fps';
+  // colour-code fps: green above 55, normal 30–55, orange below 30
+  hFps.className    = 'hud-val' + (fps >= 55 ? ' ok' : fps >= 30 ? '' : ' warn');
+
+  hTime.textContent  = t.toFixed(2) + 's';
+  hEarth.textContent = Math.round((earthAngle * 180 / Math.PI) % 360) + '°';
+  hMoon.textContent  = Math.round((moonAngle  * 180 / Math.PI) % 360) + '°';
+
+  hComet.textContent = comet.active
+    ? Math.round(Math.hypot(comet.vx, comet.vy)) + ' px/s'
+    : 'inactive';
+
+  hStage.textContent = currentStage;
+}
+
+
+// kick everything off — the browser will call loop() ~60× per second from here
+requestAnimationFrame(loop);
+</script>
+</body>
+</html>
